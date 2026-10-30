@@ -29,8 +29,27 @@ Rules that keep it honest:
 - **Keep CloudFormation's values exactly.** Generated names are taken from the physical IDs (a
   rename would replace the resource), and attributes that differ between the two (a log group's
   ARN ends in `:*` in CloudFormation) are reproduced.
+- **Judge the plan, not the summary line.** `cfn2tf -check-plan` reads `terraform show -json`
+  and lists every resource that would really change. An update that only rewrites a JSON
+  document with the same meaning (a policy returned with other whitespace) is reported apart.
+  Two SNS subscription fields that exist only in Terraform are ignored in the generated code,
+  because an import leaves them unset and every subscription would otherwise plan an update.
 - **Proved in CI** against LocalStack: the real CloudFormation deploy, the real Terraform AWS
-  provider, the four steps above (scripts/handover-e2e.sh).
+  provider, steps 1 to 3 (scripts/handover-e2e.sh).
+
+## What LocalStack does not show
+
+LocalStack 4.4's CloudFormation leaves out three things AWS does: S3 lifecycle rules, log group
+retention, and `DeletionPolicy` when a stack is deleted. The first run of the e2e found the first
+two as differences in the plan, which is the handover working as intended: the plan catches a
+deployed state that differs from the template. The e2e now applies those two through the service
+APIs, as the template says. Step 4 (deleting the stack) is not run on LocalStack, because it would
+delete the retained resources; a unit test checks that the retain template retains every resource,
+and the e2e checks that the stack accepted it.
+
+Open check for the real account: CloudFormation's lifecycle `Prefix` is written as a filter
+prefix. If a bucket was configured with the legacy top-level prefix, the plan shows it, and the
+generated rule needs `prefix` instead of `filter`.
 
 Supported today: S3 buckets (versioning, encryption, lifecycle, public access block) and bucket
 policies, SQS queues and queue policies, SNS topics and subscriptions, IAM roles, inline and

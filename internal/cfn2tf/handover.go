@@ -62,10 +62,13 @@ every resource. Only those two attributes change, so CloudFormation touches no r
 
     terraform init
     terraform plan -out handover.plan
+    terraform show -json handover.plan > plan.json
+    cfn2tf -check-plan plan.json
 
-The plan must say "%d to import, 0 to add, 0 to change, 0 to destroy". Anything else is a
-difference between this code and what is deployed: fix the code (or the resource, through the
-stack) and plan again. Do not apply a plan that changes anything.
+The check must report "%d to import, 0 real changes". A real change is a difference between
+this code and what is deployed: fix the code (or the resource, through the stack) and plan
+again. Do not apply a plan that changes anything. Equivalent JSON rewrites (the same policy
+with other whitespace) are listed separately and are safe.
 
 ## 3. Import
 
