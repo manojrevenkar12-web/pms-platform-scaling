@@ -7,7 +7,7 @@
 #   3. after deleting the stack:     terraform plan still shows no changes (resources retained)
 #
 # Needs: aws CLI, terraform, go, and an endpoint at $AWS_ENDPOINT_URL (default localhost:4566).
-set -euo pipefail
+set -Eeuo pipefail
 
 endpoint="${AWS_ENDPOINT_URL:-http://localhost:4566}"
 export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=eu-central-1 AWS_PAGER=""
@@ -16,6 +16,17 @@ work="$(pwd)/build/handover"
 rm -rf "${work:?}"
 mkdir -p "$work"
 aws_() { aws --endpoint-url "$endpoint" "$@"; }
+
+# In GitHub Actions, failures are also reported as annotations (readable without the log).
+log="$work/run.log"
+annotate() { # level title file
+  [ -n "${GITHUB_ACTIONS:-}" ] || return 0
+  local body
+  body=$(tail -n 60 "$3" | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+  echo "::$1 title=$2::$body"
+}
+trap 'rc=$?; if [ $rc -ne 0 ]; then sleep 1; annotate error "handover failed (exit $rc)" "$log"; fi' EXIT
+exec > >(tee -a "$log") 2>&1
 
 echo "== deploy the legacy stack with CloudFormation"
 aws_ cloudformation deploy --stack-name "$stack" --template-file examples/legacy-stack/template.yaml \
@@ -65,6 +76,8 @@ terraform validate -no-color
 echo "== step 2: the plan must be a pure import"
 terraform plan -input=false -no-color -out handover.plan | tee "$work/plan.txt"
 want="Plan: $expected to import, 0 to add, 0 to change, 0 to destroy."
+grep -E '^(Plan:|  # |      [~+-] )' "$work/plan.txt" > "$work/plan-summary.txt" || true
+annotate notice "plan" "$work/plan-summary.txt"
 grep -qF "$want" "$work/plan.txt" || { echo "FAIL: expected '$want'"; exit 1; }
 
 echo "== step 3: import, then no changes"
@@ -81,4 +94,6 @@ terraform plan -input=false -no-color -refresh=true -detailed-exitcode > "$work/
 cat > "$work/result.json" <<JSON
 {"imports": $expected, "plan": "$want", "after_apply": "no changes", "after_stack_delete": "no changes"}
 JSON
+echo "PASS: $expected resources handed over; no changes after import or after deleting the stack" > "$work/pass.txt"
+annotate notice "handover passed" "$work/pass.txt"
 echo "PASS: $expected resources handed over; no changes after import or after deleting the stack"
