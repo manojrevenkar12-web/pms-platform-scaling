@@ -22,7 +22,7 @@ log="$work/run.log"
 annotate() { # level title file
   [ -n "${GITHUB_ACTIONS:-}" ] || return 0
   local body
-  body=$(tail -n 60 "$3" | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+  body=$(tail -n 150 "$3" | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
   echo "::$1 title=$2::$body"
 }
 trap 'rc=$?; if [ $rc -ne 0 ]; then sleep 1; annotate error "handover failed (exit $rc)" "$log"; fi' EXIT
@@ -34,6 +34,11 @@ aws_ cloudformation deploy --stack-name "$stack" --template-file examples/legacy
 aws_ cloudformation describe-stack-resources --stack-name "$stack" > "$work/resources.json"
 aws_ cloudformation describe-stacks --stack-name "$stack" > "$work/stack.json"
 account=$(aws_ sts get-caller-identity --query Account --output text)
+bucket=$(python3 -c 'import json,sys; print([r["PhysicalResourceId"] for r in json.load(open(sys.argv[1]))["StackResources"] if r["LogicalResourceId"]=="ExportsBucket"][0])' "$work/resources.json")
+for call in get-bucket-versioning get-bucket-encryption get-bucket-lifecycle-configuration get-public-access-block; do
+  echo "s3api $call: $(aws_ s3api $call --bucket "$bucket" --output json 2>&1 | tr -d '\n' | cut -c1-400)"
+done > "$work/bucket.txt"
+annotate notice "bucket as deployed" "$work/bucket.txt"
 
 echo "== generate Terraform"
 go run ./cmd/cfn2tf -template examples/legacy-stack/template.yaml -resources "$work/resources.json" \
@@ -74,10 +79,14 @@ terraform init -input=false -no-color > /dev/null
 terraform validate -no-color
 
 echo "== step 2: the plan must be a pure import"
-terraform plan -input=false -no-color -out handover.plan | tee "$work/plan.txt"
+set +e
+terraform plan -input=false -no-color -out handover.plan > "$work/plan.txt" 2>&1
+plan_rc=$?
+set -e
+grep -E 'will be updated|must be replaced|will be created|will be destroyed|^ +[~+-] |^Plan:|^Error' "$work/plan.txt" | grep -v '^ *+ .*= (known after apply)' > "$work/plan-changes.txt" || true
+annotate warning "plan changes" "$work/plan-changes.txt"
+[ $plan_rc -eq 0 ] || { tail -n 30 "$work/plan.txt"; exit 1; }
 want="Plan: $expected to import, 0 to add, 0 to change, 0 to destroy."
-grep -E '^(Plan:|  # |      [~+-] )' "$work/plan.txt" > "$work/plan-summary.txt" || true
-annotate notice "plan" "$work/plan-summary.txt"
 grep -qF "$want" "$work/plan.txt" || { echo "FAIL: expected '$want'"; exit 1; }
 
 echo "== step 3: import, then no changes"
