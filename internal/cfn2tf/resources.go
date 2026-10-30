@@ -260,6 +260,9 @@ func s3Bucket(c *conv, p *props, name string) (bs, ims []*Block) {
 		r := resource("aws_s3_bucket_lifecycle_configuration", name).Set("bucket", ref)
 		for _, rule := range l.list("Rules") {
 			rb := r.Add("rule").Set("id", rule.get("Id")).Set("status", rule.get("Status"))
+			// CloudFormation's Prefix becomes a filter prefix, the current S3 API shape. Check the
+			// plan against the real account: a bucket configured through the legacy top-level
+			// Prefix would show a diff here.
 			if pre := rule.get("Prefix"); pre != nil {
 				rb.Add("filter").Set("prefix", pre)
 			} else {
@@ -373,6 +376,9 @@ func snsSubscription(c *conv, p *props, name string) (bs, ims []*Block) {
 		Set("filter_policy", p.json("FilterPolicy")).
 		Set("filter_policy_scope", p.get("FilterPolicyScope")).
 		Set("redrive_policy", p.json("RedrivePolicy"))
+	// These two exist only in Terraform (for confirming HTTP endpoints); an import leaves them
+	// unset, and without this every handed-over subscription would plan an update.
+	r.Add("lifecycle").Set("ignore_changes", []Expr{Raw("confirmation_timeout_in_minutes"), Raw("endpoint_auto_confirms")})
 	return []*Block{r}, []*Block{importBlock("aws_sns_topic_subscription."+name, p.physical())}
 }
 

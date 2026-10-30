@@ -5,6 +5,8 @@
 //	cfn2tf -template template.yaml -resources resources.json -stack stack.json \
 //	       -region eu-central-1 -account 123456789012 -out terraform/
 //
+//	terraform show -json handover.plan > plan.json && cfn2tf -check-plan plan.json
+//
 // It writes main.tf, imports.tf, variables.tf, outputs.tf, versions.tf, retain-template.json and
 // HANDOVER.md, or fails with the list of everything it cannot convert exactly.
 package main
@@ -30,7 +32,15 @@ func main() {
 	account := flag.String("account", "", "account ID of the stack")
 	partition := flag.String("partition", "aws", "AWS partition")
 	out := flag.String("out", "terraform", "output directory")
+	checkPlan := flag.String("check-plan", "", "instead of converting: check `terraform show -json` output of a handover plan")
 	flag.Parse()
+	if *checkPlan != "" {
+		if err := check(*checkPlan); err != nil {
+			fmt.Fprintln(os.Stderr, "cfn2tf:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(*tmpl, *resources, *stack, *region, *account, *partition, *out); err != nil {
 		fmt.Fprintln(os.Stderr, "cfn2tf:", err)
 		os.Exit(1)
@@ -86,6 +96,22 @@ func run(tmplPath, resPath, stackPath, region, account, partition, out string) e
 		}
 	}
 	fmt.Printf("wrote %d files to %s: %d resources, %d imports\n", len(names), out, len(o.Resources), o.Imports)
+	return nil
+}
+
+func check(path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	r, err := cfn2tf.CheckPlan(b)
+	if err != nil {
+		return err
+	}
+	fmt.Print(r.String())
+	if !r.OK() {
+		return fmt.Errorf("the plan changes %d resource(s); do not apply it", len(r.Changes))
+	}
 	return nil
 }
 

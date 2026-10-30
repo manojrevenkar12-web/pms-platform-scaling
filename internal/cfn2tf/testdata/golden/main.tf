@@ -58,6 +58,10 @@ resource "aws_sns_topic_subscription" "channel_sync_subscription" {
   filter_policy = jsonencode({
     event_type = ["reservation.created", "reservation.amended", "reservation.cancelled"]
   })
+
+  lifecycle {
+    ignore_changes = [confirmation_timeout_in_minutes, endpoint_auto_confirms]
+  }
 }
 
 resource "aws_s3_bucket" "exports_bucket" {

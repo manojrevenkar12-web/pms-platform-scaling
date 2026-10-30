@@ -2,9 +2,16 @@
 # End-to-end handover against a local AWS (LocalStack): deploy the legacy stack with
 # CloudFormation, generate Terraform with cfn2tf, and prove the handover changes nothing.
 #
-#   1. the plan is a pure import:   N to import, 0 to add, 0 to change, 0 to destroy
-#   2. after apply:                  terraform plan shows no changes
-#   3. after deleting the stack:     terraform plan still shows no changes (resources retained)
+#   1. the stack accepts the retain template (every resource DeletionPolicy: Retain)
+#   2. the plan only imports: every resource imported, no real change (cfn2tf -check-plan)
+#   3. after apply: terraform plan shows no changes
+#
+# LocalStack 4.4's CloudFormation does not apply three things that AWS does (see the
+# resource providers in localstack-core 4.4.0): S3 LifecycleConfiguration, log group
+# RetentionInDays, and DeletionPolicy on stack deletion. The first two are applied below through
+# the service APIs, exactly as the template says, so the deployed state is what CloudFormation
+# makes on AWS. Stack deletion (handover step 4) is not run here, because LocalStack would delete
+# the retained resources; the unit tests check that the retain template retains every resource.
 #
 # Needs: aws CLI, terraform, go, and an endpoint at $AWS_ENDPOINT_URL (default localhost:4566).
 set -Eeuo pipefail
@@ -39,6 +46,18 @@ for call in get-bucket-versioning get-bucket-encryption get-bucket-lifecycle-con
   echo "s3api $call: $(aws_ s3api $call --bucket "$bucket" --output json 2>&1 | tr -d '\n' | cut -c1-400)"
 done > "$work/bucket.txt"
 annotate notice "bucket as deployed" "$work/bucket.txt"
+
+echo "== fill LocalStack's CloudFormation gaps (lifecycle rules, log retention), as the template says"
+cat > "$work/lifecycle.json" <<JSON
+{"Rules": [
+  {"ID": "expire-exports", "Status": "Enabled", "Filter": {"Prefix": "exports/"},
+   "Expiration": {"Days": 90}, "NoncurrentVersionExpiration": {"NoncurrentDays": 7}},
+  {"ID": "archive-audit", "Status": "Enabled", "Filter": {"Prefix": "audit/"},
+   "Transitions": [{"Days": 30, "StorageClass": "GLACIER"}]}
+]}
+JSON
+aws_ s3api put-bucket-lifecycle-configuration --bucket "$bucket" --lifecycle-configuration "file://$work/lifecycle.json"
+aws_ logs put-retention-policy --log-group-name /pms/dev/channel-sync --retention-in-days 14
 
 echo "== generate Terraform"
 go run ./cmd/cfn2tf -template examples/legacy-stack/template.yaml -resources "$work/resources.json" \
@@ -78,31 +97,40 @@ terraform fmt -check -diff > "$work/fmt.diff" || echo "note: terraform fmt would
 terraform init -input=false -no-color > /dev/null
 terraform validate -no-color
 
-echo "== step 2: the plan must be a pure import"
+echo "== step 2: the plan must only import"
 set +e
 terraform plan -input=false -no-color -out handover.plan > "$work/plan.txt" 2>&1
 plan_rc=$?
 set -e
 grep -E 'will be updated|must be replaced|will be created|will be destroyed|^ +[~+-] |^Plan:|^Error' "$work/plan.txt" | grep -v '^ *+ .*= (known after apply)' > "$work/plan-changes.txt" || true
-annotate warning "plan changes" "$work/plan-changes.txt"
-[ $plan_rc -eq 0 ] || { tail -n 30 "$work/plan.txt"; exit 1; }
-want="Plan: $expected to import, 0 to add, 0 to change, 0 to destroy."
-grep -qF "$want" "$work/plan.txt" || { echo "FAIL: expected '$want'"; exit 1; }
+[ $plan_rc -eq 0 ] || { annotate warning "plan" "$work/plan-changes.txt"; tail -n 30 "$work/plan.txt"; exit 1; }
+summary=$(grep '^Plan:' "$work/plan.txt" || echo "Plan: no changes")
+terraform show -json handover.plan > "$work/plan.json"
+go -C "$OLDPWD" run ./cmd/cfn2tf -check-plan "$work/plan.json" | tee "$work/check.txt"
+grep -q "^$expected to import, 0 real changes" "$work/check.txt" || { echo "FAIL: expected $expected imports and no real change"; exit 1; }
+{ echo "$summary"; cat "$work/check.txt"; } > "$work/plan-check.txt"
+annotate notice "plan check" "$work/plan-check.txt"
 
 echo "== step 3: import, then no changes"
 terraform apply -input=false -no-color handover.plan > "$work/apply.txt"
 terraform plan -input=false -no-color -detailed-exitcode > "$work/plan-after-apply.txt" || {
   cat "$work/plan-after-apply.txt"; echo "FAIL: changes after import"; exit 1; }
 
-echo "== step 4: delete the stack; resources stay, still no changes"
-aws_ cloudformation delete-stack --stack-name "$stack"
-aws_ cloudformation wait stack-delete-complete --stack-name "$stack"
-terraform plan -input=false -no-color -refresh=true -detailed-exitcode > "$work/plan-after-delete.txt" || {
-  cat "$work/plan-after-delete.txt"; echo "FAIL: changes after deleting the stack"; exit 1; }
+echo "== step 1, checked: the stack now retains every resource"
+aws_ cloudformation get-template --stack-name "$stack" --query TemplateBody --output json > "$work/deployed-template.json"
+python3 - "$work/deployed-template.json" <<'PY'
+import json, sys
+t = json.load(open(sys.argv[1]))
+if isinstance(t, str):
+    t = json.loads(t)
+bad = [k for k, r in t["Resources"].items() if r.get("DeletionPolicy") != "Retain" or r.get("UpdateReplacePolicy") != "Retain"]
+print(f"{len(t['Resources'])} resources, not retained: {bad}")
+sys.exit(1 if bad else 0)
+PY
 
 cat > "$work/result.json" <<JSON
-{"imports": $expected, "plan": "$want", "after_apply": "no changes", "after_stack_delete": "no changes"}
+{"imports": $expected, "plan": "$summary", "real_changes": 0, "after_apply": "no changes", "stack_retains_all": true}
 JSON
-echo "PASS: $expected resources handed over; no changes after import or after deleting the stack" > "$work/pass.txt"
+echo "PASS: $expected resources imported with no real change; no changes after apply; the stack retains every resource" > "$work/pass.txt"
 annotate notice "handover passed" "$work/pass.txt"
-echo "PASS: $expected resources handed over; no changes after import or after deleting the stack"
+cat "$work/pass.txt"

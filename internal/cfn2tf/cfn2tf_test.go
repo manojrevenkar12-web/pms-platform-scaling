@@ -216,3 +216,50 @@ func TestSubEscapes(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckPlan(t *testing.T) {
+	plan := `{"resource_changes": [
+	  {"address": "aws_sqs_queue.a", "change": {"actions": ["no-op"], "importing": {"id": "u"}, "before": {"name": "a"}, "after": {"name": "a"}}},
+	  {"address": "aws_sqs_queue.b", "change": {"actions": ["update"], "importing": {"id": "u2"},
+	     "before": {"redrive_policy": "{\"maxReceiveCount\": 5, \"deadLetterTargetArn\": \"x\"}", "name": "b"},
+	     "after":  {"redrive_policy": "{\"deadLetterTargetArn\":\"x\",\"maxReceiveCount\":5}", "name": "b"}}},
+	  {"address": "aws_cloudwatch_log_group.c", "change": {"actions": ["update"], "importing": {"id": "c"},
+	     "before": {"retention_in_days": 0}, "after": {"retention_in_days": 14}}},
+	  {"address": "aws_s3_bucket.d", "change": {"actions": ["delete", "create"], "before": {}, "after": {}}},
+	  {"address": "data.aws_region.current", "change": {"actions": ["read"]}}
+	]}`
+	r, err := CheckPlan([]byte(plan))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Imports != 3 || len(r.Equivalent) != 1 || len(r.Changes) != 2 || r.OK() {
+		t.Fatalf("%+v", r)
+	}
+	if !strings.Contains(r.Changes[0], "retention_in_days") || !strings.Contains(r.Changes[1], "delete,create") {
+		t.Fatalf("%v", r.Changes)
+	}
+}
+
+func TestRetainTemplateRetainsEverything(t *testing.T) {
+	out, err := Convert(exampleInput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Resources map[string]map[string]any
+	}
+	if err := json.Unmarshal([]byte(out.Files["retain-template.json"]), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Resources) != 11 {
+		t.Fatalf("%d resources in the retain template", len(doc.Resources))
+	}
+	for id, r := range doc.Resources {
+		if r["DeletionPolicy"] != "Retain" || r["UpdateReplacePolicy"] != "Retain" {
+			t.Errorf("%s is not retained", id)
+		}
+		if r["Properties"] == nil {
+			t.Errorf("%s lost its properties", id)
+		}
+	}
+}
