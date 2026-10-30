@@ -1,0 +1,303 @@
+{
+  "when": "2026-10-30T16:29:28Z",
+  "machine": {
+    "cpus": 2,
+    "goos": "linux/amd64",
+    "go": "go1.24.7",
+    "postgres": "postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)"
+  },
+  "quick": false,
+  "hot_night": [
+    {
+      "slots": 1,
+      "writers": 16,
+      "seconds": 6,
+      "bookings": 5234,
+      "per_second": 872.3333333333334,
+      "p50_ms": 13.207,
+      "p99_ms": 80.091,
+      "waited_share": 0.8889950324799388,
+      "deadlock_retries": 0,
+      "oversold": 0
+    },
+    {
+      "slots": 1,
+      "writers": 64,
+      "seconds": 6,
+      "bookings": 3464,
+      "per_second": 577.3333333333334,
+      "p50_ms": 49.274,
+      "p99_ms": 673.955,
+      "waited_share": 0.8106235565819861,
+      "deadlock_retries": 0,
+      "oversold": 0
+    },
+    {
+      "slots": 4,
+      "writers": 16,
+      "seconds": 6,
+      "bookings": 7972,
+      "per_second": 1328.6666666666667,
+      "p50_ms": 7.071,
+      "p99_ms": 62.69,
+      "waited_share": 0.3242599096838936,
+      "deadlock_retries": 0,
+      "oversold": 0
+    },
+    {
+      "slots": 4,
+      "writers": 64,
+      "seconds": 6,
+      "bookings": 6279,
+      "per_second": 1046.5,
+      "p50_ms": 7.577,
+      "p99_ms": 753.644,
+      "waited_share": 0.28858098423315814,
+      "deadlock_retries": 0,
+      "oversold": 0
+    },
+    {
+      "slots": 16,
+      "writers": 16,
+      "seconds": 6,
+      "bookings": 10302,
+      "per_second": 1717,
+      "p50_ms": 8.875,
+      "p99_ms": 20.959,
+      "waited_share": 0,
+      "deadlock_retries": 0,
+      "oversold": 0
+    },
+    {
+      "slots": 16,
+      "writers": 64,
+      "seconds": 6,
+      "bookings": 8393,
+      "per_second": 1398.8333333333333,
+      "p50_ms": 22.127,
+      "p99_ms": 632.649,
+      "waited_share": 0.09186226617419278,
+      "deadlock_retries": 0,
+      "oversold": 0
+    }
+  ],
+  "sell_out": [
+    {
+      "slots": 1,
+      "rooms": 400,
+      "requests": 400,
+      "sold": 400,
+      "sold_out": 0,
+      "left": 0,
+      "errors": 0
+    },
+    {
+      "slots": 1,
+      "rooms": 400,
+      "requests": 1600,
+      "sold": 400,
+      "sold_out": 1200,
+      "left": 0,
+      "errors": 0
+    },
+    {
+      "slots": 16,
+      "rooms": 400,
+      "requests": 400,
+      "sold": 400,
+      "sold_out": 0,
+      "left": 0,
+      "errors": 0
+    },
+    {
+      "slots": 16,
+      "rooms": 400,
+      "requests": 1600,
+      "sold": 400,
+      "sold_out": 1200,
+      "left": 0,
+      "errors": 0
+    }
+  ],
+  "moves": {
+    "rows": [
+      {
+        "reservations": 546,
+        "pause_ms": 110.285,
+        "moving_max_ms": 118.583,
+        "neighbour_max_ms": 50.976,
+        "neighbour_p99_ms": 45.166,
+        "neighbour_p99_before": 30.967,
+        "total_seconds": 0.739563535,
+        "acked": 0,
+        "lost": 0,
+        "duplicated": 0,
+        "failed_writes": 0
+      },
+      {
+        "reservations": 927,
+        "pause_ms": 160.945,
+        "moving_max_ms": 217.361,
+        "neighbour_max_ms": 70.777,
+        "neighbour_p99_ms": 58.42,
+        "neighbour_p99_before": 33.681,
+        "total_seconds": 0.771235034,
+        "acked": 0,
+        "lost": 0,
+        "duplicated": 0,
+        "failed_writes": 0
+      },
+      {
+        "reservations": 1280,
+        "pause_ms": 204.985,
+        "moving_max_ms": 314.22,
+        "neighbour_max_ms": 85.228,
+        "neighbour_p99_ms": 60.337,
+        "neighbour_p99_before": 39.457,
+        "total_seconds": 1.083169767,
+        "acked": 0,
+        "lost": 0,
+        "duplicated": 0,
+        "failed_writes": 0
+      },
+      {
+        "reservations": 1712,
+        "pause_ms": 176.02,
+        "moving_max_ms": 60.133,
+        "neighbour_max_ms": 112.598,
+        "neighbour_p99_ms": 62.883,
+        "neighbour_p99_before": 34.407,
+        "total_seconds": 0.941764554,
+        "acked": 0,
+        "lost": 0,
+        "duplicated": 0,
+        "failed_writes": 0
+      },
+      {
+        "reservations": 2081,
+        "pause_ms": 317.786,
+        "moving_max_ms": 346.542,
+        "neighbour_max_ms": 63.841,
+        "neighbour_p99_ms": 50.311,
+        "neighbour_p99_before": 32.497,
+        "total_seconds": 0.976049179,
+        "acked": 0,
+        "lost": 0,
+        "duplicated": 0,
+        "failed_writes": 0
+      },
+      {
+        "reservations": 2543,
+        "pause_ms": 301.517,
+        "moving_max_ms": 411.357,
+        "neighbour_max_ms": 207.042,
+        "neighbour_p99_ms": 84.536,
+        "neighbour_p99_before": 36.071,
+        "total_seconds": 1.319632178,
+        "acked": 0,
+        "lost": 0,
+        "duplicated": 0,
+        "failed_writes": 0
+      },
+      {
+        "reservations": 2936,
+        "pause_ms": 204.427,
+        "moving_max_ms": 207.2,
+        "neighbour_max_ms": 99.384,
+        "neighbour_p99_ms": 59.115,
+        "neighbour_p99_before": 35.282,
+        "total_seconds": 1.075777157,
+        "acked": 0,
+        "lost": 0,
+        "duplicated": 0,
+        "failed_writes": 0
+      },
+      {
+        "reservations": 3345,
+        "pause_ms": 487.895,
+        "moving_max_ms": 537.084,
+        "neighbour_max_ms": 113.497,
+        "neighbour_p99_ms": 70.338,
+        "neighbour_p99_before": 33.109,
+        "total_seconds": 1.42588564,
+        "acked": 0,
+        "lost": 0,
+        "duplicated": 0,
+        "failed_writes": 0
+      },
+      {
+        "reservations": 3861,
+        "pause_ms": 211.163,
+        "moving_max_ms": 267.164,
+        "neighbour_max_ms": 181.647,
+        "neighbour_p99_ms": 65.873,
+        "neighbour_p99_before": 34.747,
+        "total_seconds": 1.283915333,
+        "acked": 0,
+        "lost": 0,
+        "duplicated": 0,
+        "failed_writes": 0
+      },
+      {
+        "reservations": 4232,
+        "pause_ms": 545.887,
+        "moving_max_ms": 610.828,
+        "neighbour_max_ms": 181.822,
+        "neighbour_p99_ms": 129.88,
+        "neighbour_p99_before": 67.366,
+        "total_seconds": 1.9379939940000002,
+        "acked": 0,
+        "lost": 0,
+        "duplicated": 0,
+        "failed_writes": 0
+      }
+    ],
+    "pause_p50_ms": 204.985,
+    "pause_max_ms": 545.887,
+    "moving_write_max_ms": 610.828,
+    "total_lost": 0,
+    "total_duplicated": 0,
+    "total_acked": 39002,
+    "total_failed_writes": 0,
+    "tenants_on_source": 8
+  },
+  "move_size": [
+    {
+      "reservations": 2000,
+      "checksum": true,
+      "pause_ms": 43.465,
+      "verify_ms": 24.073418999999998
+    },
+    {
+      "reservations": 2000,
+      "checksum": false,
+      "pause_ms": 17.655,
+      "verify_ms": 0.34492700000000004
+    },
+    {
+      "reservations": 20000,
+      "checksum": true,
+      "pause_ms": 186.366,
+      "verify_ms": 163.77591999999999
+    },
+    {
+      "reservations": 20000,
+      "checksum": false,
+      "pause_ms": 18.575,
+      "verify_ms": 0.277551
+    },
+    {
+      "reservations": 100000,
+      "checksum": true,
+      "pause_ms": 688.484,
+      "verify_ms": 664.881584
+    },
+    {
+      "reservations": 100000,
+      "checksum": false,
+      "pause_ms": 20.783,
+      "verify_ms": 0.25899799999999995
+    }
+  ],
+  "durability": "fsync=on, synchronous_commit=on, full_page_writes=on"
+}

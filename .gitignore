@@ -1,0 +1,5 @@
+/build/
+*.plan
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate*

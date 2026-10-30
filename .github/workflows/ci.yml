@@ -1,0 +1,61 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: PostgreSQL server binaries
+        run: |
+          ls /usr/lib/postgresql/16/bin/initdb || (sudo apt-get update && sudo apt-get install -y postgresql-16)
+      - name: Format and vet
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+      - name: Tests (real PostgreSQL servers, logical replication)
+        env:
+          PGTEST_REQUIRED: "1"
+          PGTEST_DIR: /tmp
+        run: go test -race -count=1 -timeout 20m ./...
+      - name: Benchmark (quick)
+        env:
+          PGTEST_DIR: /tmp
+        run: go run ./cmd/bench -quick -out build/bench
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-quick
+          path: build/bench
+
+  handover:
+    runs-on: ubuntu-24.04
+    services:
+      localstack:
+        image: localstack/localstack:4.4
+        ports: ["4566:4566"]
+        env:
+          SERVICES: cloudformation,s3,sqs,sns,iam,sts,logs,ssm,dynamodb
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+      - name: Wait for LocalStack
+        run: |
+          for i in $(seq 1 60); do curl -sf http://localhost:4566/_localstack/health && break; sleep 2; done
+      - name: CloudFormation stack handed over to Terraform with zero diff
+        run: scripts/handover-e2e.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: handover
+          path: build/handover

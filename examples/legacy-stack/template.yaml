@@ -1,0 +1,193 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Legacy integration stack of the booking platform: reservation events go out through SNS to a
+  queue per consumer, exports land in S3, and a worker role reads both. Deployed by hand years
+  ago; this is the stack cfn2tf hands over to Terraform.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, prod]
+    Default: dev
+  ExportRetentionDays:
+    Type: Number
+    Default: 90
+
+Mappings:
+  LogRetention:
+    dev: { Days: 14 }
+    prod: { Days: 90 }
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+  ArchiveExports: !Not [!Condition IsProd]
+
+Resources:
+  ReservationEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "reservation-events-${Environment}"
+      DisplayName: Reservation events
+      Tags:
+        - { Key: team, Value: platform }
+
+  ChannelSyncDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "channel-sync-dlq-${Environment}"
+      MessageRetentionPeriod: 1209600
+
+  ChannelSyncQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "channel-sync-${Environment}"
+      VisibilityTimeout: 120
+      ReceiveMessageWaitTimeSeconds: 20
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ChannelSyncDeadLetterQueue.Arn
+        maxReceiveCount: 5
+      Tags:
+        - { Key: team, Value: platform }
+        - { Key: consumer, Value: channel-sync }
+
+  ChannelSyncQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref ChannelSyncQueue]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowReservationEvents
+            Effect: Allow
+            Principal: { Service: sns.amazonaws.com }
+            Action: sqs:SendMessage
+            Resource: !GetAtt ChannelSyncQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref ReservationEventsTopic
+
+  ChannelSyncSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref ReservationEventsTopic
+      Protocol: sqs
+      Endpoint: !GetAtt ChannelSyncQueue.Arn
+      RawMessageDelivery: true
+      FilterPolicy:
+        event_type: [reservation.created, reservation.amended, reservation.cancelled]
+
+  ExportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "pms-exports-${Environment}-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-exports
+            Status: Enabled
+            Prefix: exports/
+            ExpirationInDays: !Ref ExportRetentionDays
+            NoncurrentVersionExpirationInDays: 7
+          - !If
+            - ArchiveExports
+            - Id: archive-audit
+              Status: Enabled
+              Prefix: audit/
+              Transitions:
+                - { StorageClass: GLACIER, TransitionInDays: 30 }
+            - !Ref AWS::NoValue
+      Tags:
+        - { Key: team, Value: platform }
+
+  IdempotencyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "channel-sync-idempotency-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: request_key, AttributeType: S }
+        - { AttributeName: account_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: request_key, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: by-account
+          KeySchema:
+            - { AttributeName: account_id, KeyType: HASH }
+          Projection: { ProjectionType: KEYS_ONLY }
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/pms/${Environment}/channel-sync"
+      RetentionInDays: !FindInMap [LogRetention, !Ref Environment, Days]
+
+  ChannelSyncEndpointParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/pms/${Environment}/channel-sync/queue-url"
+      Type: String
+      Value: !Ref ChannelSyncQueue
+      Description: Where the channel sync worker reads from
+
+  WorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "channel-sync-worker-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/CloudWatchLogsReadOnlyAccess"
+      Policies:
+        - PolicyName: consume-channel-sync
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+                Resource: !GetAtt ChannelSyncQueue.Arn
+              - Effect: Allow
+                Action: [dynamodb:PutItem, dynamodb:GetItem]
+                Resource: !GetAtt IdempotencyTable.Arn
+      Tags:
+        - { Key: team, Value: platform }
+
+  WorkerExportsPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: write-exports
+      Roles: [!Ref WorkerRole]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: s3:PutObject
+            Resource: !Sub "${ExportsBucket.Arn}/exports/*"
+          - Effect: Allow
+            Action: [logs:CreateLogStream, logs:PutLogEvents]
+            Resource: !GetAtt WorkerLogGroup.Arn
+
+Outputs:
+  TopicArn:
+    Value: !Ref ReservationEventsTopic
+  QueueUrl:
+    Value: !Ref ChannelSyncQueue
+  ExportsBucketName:
+    Value: !Ref ExportsBucket
+  WorkerRoleArn:
+    Value: !GetAtt WorkerRole.Arn

@@ -1,0 +1,32 @@
+# Settings for pms-api, reshard and the benchmark. Durations use Go syntax (10ms, 2m).
+
+api:
+  listen: ":8080"
+  # Requests must carry "Authorization: Bearer <key>". Keys are stored as SHA-256 hex and each
+  # belongs to one account; a key can only touch its own account. Real deployments put the
+  # identity provider in front and pass the account from the verified token instead.
+  keys: {}
+  max_body_bytes: 65536
+
+directory:
+  # How long a cached tenant -> shard entry is trusted. The fence makes stale entries safe;
+  # this only bounds wasted retries after a move.
+  ttl: 5s
+
+router:
+  # How long a write waits for a frozen tenant (a move in progress) before answering 503.
+  max_wait: 10s
+  backoff: 2ms
+  max_backoff: 100ms
+  max_open_conns: 32
+
+booking:
+  # Slots per (property, room type, night) when inventory is loaded. More slots means less
+  # waiting on hot nights; see reports/BENCHMARK.md for the measured effect.
+  default_slots: 8
+
+mover:
+  poll_every: 10ms
+  step_timeout: 2m
+  cleanup_after: true
+  skip_checksum: false

@@ -1,0 +1,447 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Conditions": {
+    "ArchiveExports": {
+      "Fn::Not": [
+        {
+          "Condition": "IsProd"
+        }
+      ]
+    },
+    "IsProd": {
+      "Fn::Equals": [
+        {
+          "Ref": "Environment"
+        },
+        "prod"
+      ]
+    }
+  },
+  "Description": "Legacy integration stack of the booking platform: reservation events go out through SNS to a queue per consumer, exports land in S3, and a worker role reads both. Deployed by hand years ago; this is the stack cfn2tf hands over to Terraform.\n",
+  "Mappings": {
+    "LogRetention": {
+      "dev": {
+        "Days": 14
+      },
+      "prod": {
+        "Days": 90
+      }
+    }
+  },
+  "Outputs": {
+    "ExportsBucketName": {
+      "Value": {
+        "Ref": "ExportsBucket"
+      }
+    },
+    "QueueUrl": {
+      "Value": {
+        "Ref": "ChannelSyncQueue"
+      }
+    },
+    "TopicArn": {
+      "Value": {
+        "Ref": "ReservationEventsTopic"
+      }
+    },
+    "WorkerRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "WorkerRole",
+          "Arn"
+        ]
+      }
+    }
+  },
+  "Parameters": {
+    "Environment": {
+      "AllowedValues": [
+        "dev",
+        "prod"
+      ],
+      "Default": "dev",
+      "Type": "String"
+    },
+    "ExportRetentionDays": {
+      "Default": 90,
+      "Type": "Number"
+    }
+  },
+  "Resources": {
+    "ChannelSyncDeadLetterQueue": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": {
+          "Fn::Sub": "channel-sync-dlq-${Environment}"
+        }
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ChannelSyncEndpointParameter": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Description": "Where the channel sync worker reads from",
+        "Name": {
+          "Fn::Sub": "/pms/${Environment}/channel-sync/queue-url"
+        },
+        "Type": "String",
+        "Value": {
+          "Ref": "ChannelSyncQueue"
+        }
+      },
+      "Type": "AWS::SSM::Parameter",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ChannelSyncQueue": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "channel-sync-${Environment}"
+        },
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "ChannelSyncDeadLetterQueue",
+              "Arn"
+            ]
+          },
+          "maxReceiveCount": 5
+        },
+        "Tags": [
+          {
+            "Key": "team",
+            "Value": "platform"
+          },
+          {
+            "Key": "consumer",
+            "Value": "channel-sync"
+          }
+        ],
+        "VisibilityTimeout": 120
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ChannelSyncQueuePolicy": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sqs:SendMessage",
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Ref": "ReservationEventsTopic"
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "sns.amazonaws.com"
+              },
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ChannelSyncQueue",
+                  "Arn"
+                ]
+              },
+              "Sid": "AllowReservationEvents"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Queues": [
+          {
+            "Ref": "ChannelSyncQueue"
+          }
+        ]
+      },
+      "Type": "AWS::SQS::QueuePolicy",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ChannelSyncSubscription": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Endpoint": {
+          "Fn::GetAtt": [
+            "ChannelSyncQueue",
+            "Arn"
+          ]
+        },
+        "FilterPolicy": {
+          "event_type": [
+            "reservation.created",
+            "reservation.amended",
+            "reservation.cancelled"
+          ]
+        },
+        "Protocol": "sqs",
+        "RawMessageDelivery": true,
+        "TopicArn": {
+          "Ref": "ReservationEventsTopic"
+        }
+      },
+      "Type": "AWS::SNS::Subscription",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ExportsBucket": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "BucketName": {
+          "Fn::Sub": "pms-exports-${Environment}-${AWS::AccountId}"
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "ExpirationInDays": {
+                "Ref": "ExportRetentionDays"
+              },
+              "Id": "expire-exports",
+              "NoncurrentVersionExpirationInDays": 7,
+              "Prefix": "exports/",
+              "Status": "Enabled"
+            },
+            {
+              "Fn::If": [
+                "ArchiveExports",
+                {
+                  "Id": "archive-audit",
+                  "Prefix": "audit/",
+                  "Status": "Enabled",
+                  "Transitions": [
+                    {
+                      "StorageClass": "GLACIER",
+                      "TransitionInDays": 30
+                    }
+                  ]
+                },
+                {
+                  "Ref": "AWS::NoValue"
+                }
+              ]
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "Tags": [
+          {
+            "Key": "team",
+            "Value": "platform"
+          }
+        ],
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        }
+      },
+      "Type": "AWS::S3::Bucket",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "IdempotencyTable": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "request_key",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "account_id",
+            "AttributeType": "S"
+          }
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "by-account",
+            "KeySchema": [
+              {
+                "AttributeName": "account_id",
+                "KeyType": "HASH"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "KEYS_ONLY"
+            }
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "request_key",
+            "KeyType": "HASH"
+          }
+        ],
+        "TableName": {
+          "Fn::Sub": "channel-sync-idempotency-${Environment}"
+        },
+        "TimeToLiveSpecification": {
+          "AttributeName": "expires_at",
+          "Enabled": true
+        }
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ReservationEventsTopic": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "DisplayName": "Reservation events",
+        "Tags": [
+          {
+            "Key": "team",
+            "Value": "platform"
+          }
+        ],
+        "TopicName": {
+          "Fn::Sub": "reservation-events-${Environment}"
+        }
+      },
+      "Type": "AWS::SNS::Topic",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "WorkerExportsPolicy": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:PutObject",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Sub": "${ExportsBucket.Arn}/exports/*"
+              }
+            },
+            {
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "WorkerLogGroup",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "write-exports",
+        "Roles": [
+          {
+            "Ref": "WorkerRole"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Policy",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "WorkerLogGroup": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/pms/${Environment}/channel-sync"
+        },
+        "RetentionInDays": {
+          "Fn::FindInMap": [
+            "LogRetention",
+            {
+              "Ref": "Environment"
+            },
+            "Days"
+          ]
+        }
+      },
+      "Type": "AWS::Logs::LogGroup",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "WorkerRole": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/CloudWatchLogsReadOnlyAccess"
+          }
+        ],
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "sqs:ReceiveMessage",
+                    "sqs:DeleteMessage",
+                    "sqs:GetQueueAttributes"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "ChannelSyncQueue",
+                      "Arn"
+                    ]
+                  }
+                },
+                {
+                  "Action": [
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "IdempotencyTable",
+                      "Arn"
+                    ]
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "consume-channel-sync"
+          }
+        ],
+        "RoleName": {
+          "Fn::Sub": "channel-sync-worker-${Environment}"
+        },
+        "Tags": [
+          {
+            "Key": "team",
+            "Value": "platform"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role",
+      "UpdateReplacePolicy": "Retain"
+    }
+  }
+}

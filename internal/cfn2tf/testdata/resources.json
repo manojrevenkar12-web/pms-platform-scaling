@@ -1,0 +1,13 @@
+{"StackResources": [
+  {"LogicalResourceId": "ReservationEventsTopic", "PhysicalResourceId": "arn:aws:sns:eu-central-1:123456789012:reservation-events-dev", "ResourceType": "AWS::SNS::Topic"},
+  {"LogicalResourceId": "ChannelSyncDeadLetterQueue", "PhysicalResourceId": "https://sqs.eu-central-1.amazonaws.com/123456789012/channel-sync-dlq-dev", "ResourceType": "AWS::SQS::Queue"},
+  {"LogicalResourceId": "ChannelSyncQueue", "PhysicalResourceId": "https://sqs.eu-central-1.amazonaws.com/123456789012/channel-sync-dev", "ResourceType": "AWS::SQS::Queue"},
+  {"LogicalResourceId": "ChannelSyncQueuePolicy", "PhysicalResourceId": "legacy-ChannelSyncQueuePolicy-1A2B3C", "ResourceType": "AWS::SQS::QueuePolicy"},
+  {"LogicalResourceId": "ChannelSyncSubscription", "PhysicalResourceId": "arn:aws:sns:eu-central-1:123456789012:reservation-events-dev:6b0e71bd-7e97-4d97-80ce-4a0994e55286", "ResourceType": "AWS::SNS::Subscription"},
+  {"LogicalResourceId": "ExportsBucket", "PhysicalResourceId": "pms-exports-dev-123456789012", "ResourceType": "AWS::S3::Bucket"},
+  {"LogicalResourceId": "IdempotencyTable", "PhysicalResourceId": "channel-sync-idempotency-dev", "ResourceType": "AWS::DynamoDB::Table"},
+  {"LogicalResourceId": "WorkerLogGroup", "PhysicalResourceId": "/pms/dev/channel-sync", "ResourceType": "AWS::Logs::LogGroup"},
+  {"LogicalResourceId": "ChannelSyncEndpointParameter", "PhysicalResourceId": "/pms/dev/channel-sync/queue-url", "ResourceType": "AWS::SSM::Parameter"},
+  {"LogicalResourceId": "WorkerRole", "PhysicalResourceId": "channel-sync-worker-dev", "ResourceType": "AWS::IAM::Role"},
+  {"LogicalResourceId": "WorkerExportsPolicy", "PhysicalResourceId": "legac-Worke-1QWERTY", "ResourceType": "AWS::IAM::Policy"}
+]}

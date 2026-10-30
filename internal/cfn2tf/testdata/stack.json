@@ -1,0 +1,2 @@
+{"Stacks": [{"StackName": "legacy-integration", "StackId": "arn:aws:cloudformation:eu-central-1:123456789012:stack/legacy-integration/1", "StackStatus": "CREATE_COMPLETE",
+  "Parameters": [{"ParameterKey": "Environment", "ParameterValue": "dev"}, {"ParameterKey": "ExportRetentionDays", "ParameterValue": "90"}]}]}
